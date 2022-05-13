@@ -1,0 +1,1 @@
+conda create --name hovdeg python=3.9 jupyter numpy matplotlib pandas scipy dill pre-commit
