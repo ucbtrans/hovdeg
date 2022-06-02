@@ -58,8 +58,8 @@ def load_hourly(vds=[], starttime=None, endtime=None):
     # Load data
     filename = os.path.join(processed_folder,f'{vds}_hourly.csv')
     hourly = pd.read_csv(filename)
-    hourly = hourly.astype({'route':str,'perc_obs':float})
-    hourly['timestamp']= pd.to_datetime(hourly['timestamp'])
+    hourly = hourly.astype({'route':str, 'perc_obs':float})
+    hourly['timestamp'] = pd.to_datetime(hourly['timestamp'])
     hourly = hourly.set_index('timestamp')
     hourly = hourly.drop(labels=['samples','station'],axis=1)
 
@@ -122,7 +122,10 @@ def get_district_for_vds(vds):
         if guess in possible_answers:
             return guess
         else:
-            return 0W
+            return 0
+
+def get_vds2district_map(vdss):
+    return { vds:get_district_for_vds(vds) for vds in vdss }
 
 def plot_hourly(hourly):
     plt.subplots(figsize=(15,15),nrows=4,sharex=True)
