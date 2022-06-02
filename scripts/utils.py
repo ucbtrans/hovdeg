@@ -2,11 +2,22 @@ import os
 import dill
 import pandas as pd
 import matplotlib.pyplot as plt
+import ast
 
 def get_processed_folder():
     dirname = os.path.dirname(os.path.realpath("__file__"))
     return os.path.join(dirname, '..', 'processed')
 
+def load_routes():
+
+    with open('config.txt') as f:
+        routes = ast.literal_eval( f.read() )
+
+    all_vdss = set()
+    for vdss in routes.values():
+        all_vdss.update(vdss)
+
+    return routes, all_vdss
 
 def load_vds_table(district):
 
@@ -99,6 +110,19 @@ def load_hourly(vds=[], starttime=None, endtime=None):
 
     return hourly, vdsdata, daily
 
+
+def get_district_for_vds(vds):
+    possible_answers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+    strvds = str(vds)
+    guess = int(strvds[:-5])
+    if guess in possible_answers:
+        return guess
+    else:
+        guess = int(strvds[:-6])
+        if guess in possible_answers:
+            return guess
+        else:
+            return 0W
 
 def plot_hourly(hourly):
     plt.subplots(figsize=(15,15),nrows=4,sharex=True)
