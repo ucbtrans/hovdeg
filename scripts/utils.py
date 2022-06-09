@@ -3,21 +3,33 @@ import dill
 import pandas as pd
 import matplotlib.pyplot as plt
 import ast
+import folium
+
 
 def get_processed_folder():
     dirname = os.path.dirname(os.path.realpath("__file__"))
     return os.path.join(dirname, '..', 'processed')
 
+
 def load_routes():
 
-    with open('config.txt') as f:
-        routes = ast.literal_eval( f.read() )
+    dirname = os.path.dirname(os.path.realpath("__file__"))
+    data_folder = os.path.join(dirname, '..', 'data', 'stationdata')
 
-    all_vdss = set()
-    for vdss in routes.values():
-        all_vdss.update(vdss)
+    with open('routes.txt') as f:
+        route_names = ast.literal_eval(f.read())
 
-    return routes, all_vdss
+    routes = {}
+    for route_name in route_names:
+        try:
+            filename = os.path.join(data_folder, f'{route_name}.xlsx')
+            df = pd.read_excel(filename)
+            routes[route_name] = [int(val) for val in df['ID'].values]
+        except:
+            print(f"Warning: no station data file for route {route_name}")
+
+    return routes
+
 
 def load_vds_table(district):
 
@@ -41,6 +53,7 @@ def load_vds_table(district):
     all_vdss = list(vds_table.index)
 
     return vds_table, all_vdss
+
 
 def load_vds_tables(districts):
     vds_tables = []
@@ -117,6 +130,7 @@ def load_hourly(vds=[], starttime=None, endtime=None):
 
     return hourly, vdsdata, daily
 
+
 def get_district_for_vds(vds):
     possible_answers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
     strvds = str(vds)
@@ -130,14 +144,17 @@ def get_district_for_vds(vds):
         else:
             return 0
 
+
 def get_districts_for_vdss(vdss):
     return {get_district_for_vds(vds) for vds in vdss}
+
 
 def get_vds2district_map(vdss):
     return { vds:get_district_for_vds(vds) for vds in vdss }
 
+
 def plot_hourly(hourly):
-    plt.subplots(figsize=(15,15),nrows=4,sharex=True)
+    plt.subplots(figsize=(15, 15), nrows=4, sharex=True)
     plt.subplot(411)
     plt.plot(hourly.index,hourly['perc_obs'])
     plt.ylabel('Perc Obs')
@@ -152,3 +169,49 @@ def plot_hourly(hourly):
     plt.ylabel('Speed [XXX]')
 
 
+def map_route(route_name, dx=0.001, tweakdir='lat'):
+
+    if tweakdir == 'lat':
+        latmult = 1.0
+        lonmult = 0.0
+    else:
+        lonmult = 1.0
+        latmult = 0.0
+
+    routes = load_routes()
+    route = routes[route_name]
+    vds_tables = load_vds_tables(get_districts_for_vdss(route))
+
+    small_table = vds_tables.loc[route]
+    small_table = small_table.sort_values(by='Abs_PM')
+
+    fig = folium.Figure(width=1000, height=500)
+    fmap = folium.Map(location=[small_table['Latitude'].mean(), small_table['Longitude'].mean()],
+                      tiles="OpenStreetMap",
+                      zoom_start=13).add_to(fig)
+
+    for vds, row in small_table.iterrows():
+
+        if row['Type'] == 'HV':
+            icon = folium.Icon(color="green")
+            tweak = dx
+        elif row['Type'] == 'ML':
+            icon = folium.Icon(color="red")
+            tweak = 0
+        elif row['Type'] == 'OR':
+            icon = folium.Icon(color="blue")
+            tweak = -dx
+        elif row['Type'] == 'FR':
+            icon = folium.Icon(color="purple")
+            tweak = -2*dx
+        else:
+            icon = folium.Icon(color="black")
+            tweak = 0
+
+        folium.Marker(
+            location=(row['Latitude'] + latmult*tweak, row['Longitude'] + lonmult*tweak),
+            popup=vds,
+            icon=icon
+        ).add_to(fmap)
+
+    return fmap
