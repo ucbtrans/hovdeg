@@ -42,6 +42,13 @@ def load_vds_table(district):
 
     return vds_table, all_vdss
 
+def load_vds_tables(districts):
+    vds_tables = []
+    for district in districts:
+        vds_table, _ = load_vds_table(district)
+        vds_tables.append(vds_table)
+    return pd.concat(vds_tables)
+
 
 def load_hourly(vds=[], starttime=None, endtime=None):
     # load hourly data for a given vds and time period
@@ -110,7 +117,6 @@ def load_hourly(vds=[], starttime=None, endtime=None):
 
     return hourly, vdsdata, daily
 
-
 def get_district_for_vds(vds):
     possible_answers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
     strvds = str(vds)
@@ -123,6 +129,9 @@ def get_district_for_vds(vds):
             return guess
         else:
             return 0
+
+def get_districts_for_vdss(vdss):
+    return {get_district_for_vds(vds) for vds in vdss}
 
 def get_vds2district_map(vdss):
     return { vds:get_district_for_vds(vds) for vds in vdss }
