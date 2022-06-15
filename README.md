@@ -1,7 +1,7 @@
 # hovdeg
 
 ```python
-conda create --name hovdeg -c conda-forge python=3.9 jupyter numpy matplotlib pandas scipy dill pre-commit folium
+conda create --name hovdeg -c conda-forge python=3.9 jupyter numpy matplotlib pandas scipy dill pre-commit folium streamlit openpyxl
 conda activate hovdeg
 pre-commit install
 ```

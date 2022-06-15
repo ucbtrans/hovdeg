@@ -1,9 +1,10 @@
 import os
-import dill
 import pandas as pd
 import matplotlib.pyplot as plt
 import ast
 import folium
+from os.path import exists
+import numpy as np
 
 
 def get_processed_folder():
@@ -11,67 +12,97 @@ def get_processed_folder():
     return os.path.join(dirname, '..', 'processed')
 
 
-def load_routes():
+def load_route_names():
+    try:
+        with open('routes.txt') as f:
+            route_names = ast.literal_eval(f.read())
+    except:
+        print("Error loading routes.txt")
+    return route_names
 
+###################
+# ROUTE VDS
+###################
+
+def load_route_vds_table(route_name):
+    return pd.read_csv(os.path.join(get_processed_folder(), f'meta_route_vds_hist_{route_name}.csv'),
+                       index_col=0,
+                       parse_dates=[1])
+
+
+def load_route_vdss(route_name):
     dirname = os.path.dirname(os.path.realpath("__file__"))
     data_folder = os.path.join(dirname, '..', 'data', 'stationdata')
+    filename = os.path.join(data_folder, f'{route_name}.xlsx')
 
-    with open('routes.txt') as f:
-        route_names = ast.literal_eval(f.read())
+    if not exists(filename):
+        print(f"Error: {filename} does not exist.")
+        return None
 
+    try:
+        df = pd.read_excel(filename)
+        route_data = [int(val) for val in df['ID'].values]
+    except Exception as e:
+        print(e)
+    return route_data
+
+
+def load_routes_vdss(route_names):
     routes = {}
     for route_name in route_names:
-        try:
-            filename = os.path.join(data_folder, f'{route_name}.xlsx')
-            df = pd.read_excel(filename)
-            routes[route_name] = [int(val) for val in df['ID'].values]
-        except:
-            print(f"Warning: no station data file for route {route_name}")
+        routes[route_name] = load_route_vdss(route_name)
 
     return routes
 
+###################
+# DISTRICT VDS
+###################
 
-def load_vds_table(district):
-
-    processed_folder = get_processed_folder()
-
-    with open(os.path.join(processed_folder, f'meta_vds_hist_{district}.pickle'),'rb') as f:
-        vds_tables = dill.load(f)
-
-    all_vdss = set(vds_tables.keys())
-
-    cols = ['Fwy', 'Dir', 'District', 'County', 'City', 'State_PM',
-            'Abs_PM', 'Latitude', 'Longitude', 'Length', 'Type', 'Lanes', 'Name',
-            'User_ID_1', 'User_ID_2', 'User_ID_3', 'User_ID_4']
-
-    vds_table = pd.DataFrame(index=all_vdss, columns=cols)
-    for vds, table in vds_tables.items():
-        vds_table.loc[vds] = table[cols].iloc[0,:]
-
-    vds_table = vds_table.sort_values('Abs_PM')
-
-    all_vdss = list(vds_table.index)
-
-    return vds_table, all_vdss
+def load_district_vds_table(district):
+    return pd.read_csv(os.path.join(get_processed_folder(), f'meta_district_vds_hist_{district}.csv'),
+                         index_col=0,
+                         parse_dates=[1])
 
 
-def load_vds_tables(districts):
+def load_districts_vds_tables(districts):
     vds_tables = []
     for district in districts:
-        vds_table, _ = load_vds_table(district)
+        vds_table = load_district_vds_table(district)
         vds_tables.append(vds_table)
     return pd.concat(vds_tables)
 
 
-def load_hourly(vds=[], starttime=None, endtime=None):
+def get_district_for_vds(vds):
+    possible_answers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+    strvds = str(vds)
+    guess = int(strvds[:-5])
+    if guess in possible_answers:
+        return guess
+    else:
+        guess = int(strvds[:-6])
+        if guess in possible_answers:
+            return guess
+        else:
+            return 0
+
+
+def get_districts_for_vdss(vdss):
+    return {get_district_for_vds(vds) for vds in vdss}
+
+
+def get_vds2district_map(vdss):
+    return { vds:get_district_for_vds(vds) for vds in vdss }
+
+########################
+# TRAFFIC DATA
+########################
+
+def load_hourly(vds, starttime=None, endtime=None):
     # load hourly data for a given vds and time period
     # returns
     # hourly : pandas dataframe with hourly data
     # vdsdata : dictionary with vds static information
     # daily : pandas dataframe with daily health
-
-    if type(vds)==list  and len(vds)==0:
-        return None, None, None
 
     processed_folder = get_processed_folder()
 
@@ -93,7 +124,7 @@ def load_hourly(vds=[], starttime=None, endtime=None):
 
     vdsdata = {'vds': vds}
     if len(hourly)==0:
-        return hourly, vdsdata, None
+        return hourly, vdsdata
 
     # keep vds metadata
     if len(hourly['route'].unique())>1:
@@ -124,52 +155,48 @@ def load_hourly(vds=[], starttime=None, endtime=None):
         vdsdata['stn_length'] = hourly['stn_length'][0]
         hourly = hourly.drop(labels='stn_length',axis=1)
 
-    # health information
-    daily = hourly['perc_obs'].groupby(hourly.index.to_period('D')).mean() > 80
-    daily = daily.to_frame().rename(columns={'perc_obs':'healthy'})
-
-    return hourly, vdsdata, daily
+    return hourly, vdsdata
 
 
-def get_district_for_vds(vds):
-    possible_answers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
-    strvds = str(vds)
-    guess = int(strvds[:-5])
-    if guess in possible_answers:
-        return guess
+def load_health(route_name, startday=None, endday=None):
+    processed_folder = get_processed_folder()
+    filename = os.path.join(processed_folder, f'route_health_{route_name}.csv')
+    table = pd.read_csv(filename, index_col=0, parse_dates=True)
+    if startday==None and endday==None:
+        return table
+    elif startday==None:
+        return table[:endday]
+    elif endday==None:
+        return table[startday:]
     else:
-        guess = int(strvds[:-6])
-        if guess in possible_answers:
-            return guess
-        else:
-            return 0
+        return table[startday:endday]
 
+########################
+# PLOTS
+########################
 
-def get_districts_for_vdss(vdss):
-    return {get_district_for_vds(vds) for vds in vdss}
-
-
-def get_vds2district_map(vdss):
-    return { vds:get_district_for_vds(vds) for vds in vdss }
-
-
-def plot_hourly(hourly):
-    plt.subplots(figsize=(15, 15), nrows=4, sharex=True)
+def plot_hourly(hourly,figsize=(10, 15)):
+    fig, ax = plt.subplots(figsize=figsize, nrows=4, sharex=True)
     plt.subplot(411)
     plt.plot(hourly.index,hourly['perc_obs'])
+    plt.grid()
     plt.ylabel('Perc Obs')
     plt.subplot(412)
     plt.plot(hourly.index,hourly['total_flow'])
+    plt.grid()
     plt.ylabel('Flow [vph]')
     plt.subplot(413)
     plt.plot(hourly.index,hourly['avg_occ'])
+    plt.grid()
     plt.ylabel('Occ [-]')
     plt.subplot(414)
     plt.plot(hourly.index,hourly['avg_speed'])
-    plt.ylabel('Speed [XXX]')
+    plt.grid()
+    plt.ylabel('Speed [mph]')
+    return fig
 
 
-def map_route(route_name, dx=0.001, tweakdir='lat'):
+def map_route(vdss, vds_table, date, dx=0.001, tweakdir='lat'):
 
     if tweakdir == 'lat':
         latmult = 1.0
@@ -178,19 +205,31 @@ def map_route(route_name, dx=0.001, tweakdir='lat'):
         lonmult = 1.0
         latmult = 0.0
 
-    routes = load_routes()
-    route = routes[route_name]
-    vds_tables = load_vds_tables(get_districts_for_vdss(route))
+    map_table = pd.DataFrame(index=vdss,columns=['lat','lng','type'])
+    for vds in vdss:
 
-    small_table = vds_tables.loc[route]
-    small_table = small_table.sort_values(by='Abs_PM')
+        ind = vds_table['ID']==vds
+        if ~np.any(ind):
+            continue
+
+        if sum(ind)==1:
+            map_table.loc[vds, ['lat','lng','type']] = vds_table.loc[ind,['Latitude','Longitude','Type']].values
+        else:
+            tiny_table = vds_table.loc[ind,['date','Latitude','Longitude','Type']]
+            first_post = np.where(tiny_table['date']>date)
+            if len(first_post[0])==0:
+                last_pre = 0
+            else:
+                last_pre = np.max(first_post[0][0]-1,0)
+
+            map_table.loc[vds, ['lat','lng','type']] = tiny_table.iloc[last_pre,[1,2,3]].values
 
     fig = folium.Figure(width=1000, height=500)
-    fmap = folium.Map(location=[small_table['Latitude'].mean(), small_table['Longitude'].mean()],
+    fmap = folium.Map(location=[vds_table['Latitude'].mean(), vds_table['Longitude'].mean()],
                       tiles="OpenStreetMap",
                       zoom_start=13).add_to(fig)
 
-    for vds, row in small_table.iterrows():
+    for vds, row in vds_table.iterrows():
 
         if row['Type'] == 'HV':
             icon = folium.Icon(color="green")
@@ -214,4 +253,42 @@ def map_route(route_name, dx=0.001, tweakdir='lat'):
             icon=icon
         ).add_to(fmap)
 
-    return fmap
+    return fig
+
+
+def pcolor_route_health(health_table, figsize=(15,8)):
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.pcolor(health_table.index,health_table.columns,health_table.T,cmap='gray')
+    ax.invert_yaxis()
+    return fig
+
+
+def lineplot_route_health(health_table, fill=False, figsize=(15, 5)):
+    fig = plt.figure(figsize=figsize)
+
+    if fill:
+        plt.fill_between(health_table.index,health_table.mean(axis=1))
+    else:
+        health_table.mean(axis=1).plot(linewidth=2)
+
+    plt.yticks(fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.ylabel('% health', fontsize=16)
+    plt.grid()
+    return fig
+
+
+def lineplot_vds_health(vds,health_table, fill=False, figsize=(15,5)):
+    fig = plt.figure(figsize=figsize)
+
+    if fill:
+        plt.fill_between(health_table.index,health_table[str(vds)])
+    else:
+        health_table[str(vds)].plot(linewidth=2)
+
+    plt.yticks(fontsize=16)
+    plt.xticks(fontsize=16)
+    plt.ylabel('% health', fontsize=16)
+    plt.grid()
+    return fig
+
