@@ -1,0 +1,1 @@
+streamlit run st_data_viewer.py --logger.level=WARNING 2>log_viewer.log
